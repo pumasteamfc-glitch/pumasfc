@@ -10,7 +10,6 @@ from typing import List, Optional, Dict, Any
 import uuid
 from datetime import datetime
 from bson import ObjectId
-from emergentintegrations.llm.chat import LlmChat, UserMessage
 import secrets
 import string
 
@@ -21,7 +20,6 @@ mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
 db = client[os.environ['DB_NAME']]
 
-EMERGENT_LLM_KEY = os.environ.get('EMERGENT_LLM_KEY', '')
 
 app = FastAPI(title="Pumas FC Control API")
 api_router = APIRouter(prefix="/api")
@@ -704,42 +702,12 @@ async def get_dashboard():
     return DashboardStats(avg_team_form=round(avg_form, 2), discipline_index=round(discipline_index, 2), best_performer=best_performer, players_improving=improving, players_declining=declining, recent_results=recent_results, lineup_stability=round(stability, 2), total_players=len(players), upcoming_events=upcoming, active_faults=active_faults)
 
 # AI
-@api_router.post("/ai/analyze")
-async def ai_analyze(request: AIQueryRequest):
-    if not EMERGENT_LLM_KEY:
-        raise HTTPException(status_code=500, detail="IA no configurada")
-    
-    context = await get_team_context()
-    system_message = f"""Eres el asistente táctico de Pumas FC (Pro Clubs EA FC 25). Analiza y da consejos concretos en español.
 
-PLANTILLA ({context['total_players']} jugadores):
-""" + '\n'.join([f"- {p['name']} ({p['position']}): Rating {p['rating']}, {p['form']}, {p['role']}" for p in context['players']]) + f"""
-
-ÚLTIMOS RESULTADOS: {', '.join([f"{m['result']} vs {m['opponent']} ({m['score']})" for m in context['recent_matches'][:5]]) or 'Sin partidos'}
-
-ALERTAS: {', '.join([f"{a['player']}: {a['type']} - {a['reason']}" for a in context['discipline_alerts'][:3]]) or 'Ninguna'}
-
-Responde siempre en español, sé conciso y práctico."""
-
-    try:
-        chat = LlmChat(api_key=EMERGENT_LLM_KEY, session_id=request.session_id or str(uuid.uuid4()), system_message=system_message).with_model("openai", "gpt-4o")
-        response = await chat.send_message(UserMessage(text=request.message))
-        return {"session_id": request.session_id or str(uuid.uuid4()), "response": response}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
 
 # Constants
 @api_router.get("/constants")
 async def get_constants():
     return {"positions": POSITIONS, "position_names": POSITION_NAMES, "player_roles": PLAYER_ROLES, "form_states": FORM_STATES, "trends": TRENDS, "fault_types": FAULT_TYPES, "event_types": EVENT_TYPES, "formations": list(FORMATIONS.keys())}
-
-@api_router.get("/test-mongo")
-async def test_mongo():
-    try:
-        count = await db.players.count_documents({})
-        return {"success": True, "players_count": count}
-    except Exception as e:
-        return {"success": False, "error": str(e)}
 
 app.include_router(api_router)
 app.add_middleware(CORSMiddleware, allow_credentials=True, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
